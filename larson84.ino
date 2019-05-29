@@ -16,6 +16,13 @@
 // on the LEDs. A long press reads the battery voltage by briefly turning
 // off the boost regulator.
 //
+// Eight different scan patterns can be accessed by holding the select
+// button and reset at the same time, then releasing reset, then the
+// select button. The LEDs indicate the selected pattern. Press and
+// release the select button to change. A long press will save the
+// selection to EEPROM or just wait five seconds and it will time out
+// and save the selection.
+//
 // The code continuously monitors Vcc and if it drops below 3 volts
 // (meaning the battery is exhausted and the boost regulator cannot
 // compensate) then the MCU goes into power down sleep mode. A reset

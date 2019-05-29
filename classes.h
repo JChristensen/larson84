@@ -2,17 +2,17 @@
 class HB_LED
 {
     public:
+        enum states_t {LED_OFF, LED_ON, LED_DISABLED};      // states for the state machine
         HB_LED(uint8_t pin, uint32_t interval)
-            : m_pin(pin), m_onInterval(interval), m_offInterval(interval), m_state(LED_ON) {}
+            : m_pin(pin), m_onInterval(interval), m_offInterval(interval) {}
         HB_LED(uint8_t pin, uint32_t onInterval, uint32_t offInterval)
-            : m_pin(pin), m_onInterval(onInterval), m_offInterval(offInterval), m_state(LED_ON) {}
-        void begin();
+            : m_pin(pin), m_onInterval(onInterval), m_offInterval(offInterval) {}
+        void begin(states_t initialState=LED_DISABLED);
         void run();
         void disable();
         void enable();
 
     private:
-        enum states_t {LED_OFF, LED_ON, LED_DISABLED};  // states for the state machine
         uint8_t m_pin;
         uint32_t m_onInterval;
         uint32_t m_offInterval;
@@ -20,10 +20,11 @@ class HB_LED
         uint8_t m_state;
 };
 
-void HB_LED::begin()
+void HB_LED::begin(states_t initialState)
 {
+    m_state = initialState;
     pinMode(m_pin, OUTPUT);
-    if (m_state == LED_ON) digitalWrite(m_pin, HIGH);
+    digitalWrite(m_pin, m_state == LED_ON);
     m_lastChange = millis();
 }
 
