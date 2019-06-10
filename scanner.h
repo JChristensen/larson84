@@ -40,12 +40,13 @@ class Scanner
         uint8_t dec2bcd(uint8_t n);     // convert a regular integer to binard coded decimal
 
         // states for the state machine
-        enum states_t {checkSet, setMode, wait, overlap, next, showVcc1, showVcc2, sleep};
+        enum states_t {checkSet, setMode, checkButton, waitNext, waitOverlap, next,
+                       displayBatt, displayReg, displayVoltage1, displayVoltage2, sleep};
 
         // constants
         static constexpr uint32_t
             m_msVccInterval{1000},      // milliseconds between Vcc reads
-            m_msDisplayMax{10000},      // max time to display voltage on LEDs
+            m_msDisplayMax{6000},       // max time to display voltage on LEDs
             m_msLongPress{1000},        // long button press
             m_msSetTimeout{5000};       // set mode timeout
         static constexpr int
@@ -54,11 +55,11 @@ class Scanner
             m_maxMode{7};               // mode number must be between 0 and 7
 
         // class variables
-        states_t m_state;               // state machine state
         Button *m_btn;                  // select button
         HB_LED *m_hbLED;                // heartbeat LED
         uint8_t m_regEnable;            // boost regulator enable pin
         movingAvg avgVcc;
+        states_t m_state;               // state machine state
         uint32_t m_msInterval;          // milliseconds between changing the LED pattern
         uint32_t m_msOverlap;           // milliseconds overlap between patterns
         uint8_t m_pattern;              // LED pattern
@@ -73,6 +74,7 @@ class Scanner
         scannerType_t m_type;           // scanner type
         uint8_t m_mode;                 // copy of m_mode_ee from EEPROM
         static EEMEM uint8_t m_mode_ee; // copy of m_mode in EEPROM
+        bool m_inOverlap;               // currently in an overlap interval
 };
 
 EEMEM uint8_t Scanner::m_mode_ee;       // copy of m_mode in EEPROM
@@ -82,9 +84,9 @@ void Scanner::begin()
 {
     pinMode(m_regEnable, OUTPUT);
     digitalWrite(m_regEnable, HIGH);
-    ADCSRA = _BV(ADEN);         // enable the ADC
-    DDRA = 0xff;                // set all PORTA pins as outputs
-    PORTA = 0x00;               // all LEDs off
+    ADCSRA = _BV(ADEN);                 // enable the ADC
+    DDRA = 0xff;                        // set all PORTA pins as outputs
+    PORTA = 0x00;                       // all LEDs off
     m_btn->begin();
     avgVcc.begin();
     m_hbLED->begin();
@@ -109,7 +111,6 @@ void Scanner::begin()
 void Scanner::run()
 {
     m_ms = millis();
-    m_btn->read();
     m_hbLED->run();
 
     // check to see if it's time to read Vcc
@@ -125,6 +126,7 @@ void Scanner::run()
     {
         // check to see if the user wants to change the mode
         case checkSet:
+            m_btn->read();
             if (m_btn->isPressed())
             {
                 m_state = setMode;
@@ -133,12 +135,13 @@ void Scanner::run()
             }
             else
             {
-                m_state = wait;
+                m_state = checkButton;
             }
             break;
 
         // set the mode (indicates the mode 0-7 on the LEDs)
         case setMode:
+            m_btn->read();
             if (m_btn->wasReleased())
             {
                 if (++m_mode > m_maxMode) m_mode = 0;
@@ -146,7 +149,7 @@ void Scanner::run()
             }
             else if (m_btn->pressedFor(m_msLongPress))
             {
-                m_state = wait;
+                m_state = checkButton;
                 eeprom_update_byte(&m_mode_ee, m_mode);
                 PORTA = 0x00;
                 while (!m_btn->wasReleased()) m_btn->read();
@@ -154,67 +157,70 @@ void Scanner::run()
             }
             else if (m_ms - m_btn->lastChange() >= m_msSetTimeout)
             {
-                m_state = wait;
+                m_state = checkButton;
                 eeprom_update_byte(&m_mode_ee, m_mode);
                 PORTA = 0x00;
                 init();
             }
             break;
 
-        // wait until time to change the LED pattern, watch for switch presses
-        case wait:
-            // display Vcc on the LEDs
+        // watch for button presses, this is the main running state
+        case checkButton:
+            // display battery voltage on the LEDs
+            m_btn->read();
             if (m_btn->wasReleased())
             {
-                m_state = showVcc1;
-                m_msDisplay = m_ms;
-                m_bcdVcc = dec2bcd(m_vcc / 100);    // most significant two digits
-                PORTA = m_bcdVcc;
-                m_bcdVcc = dec2bcd(m_vcc % 100);    // least significant two digits
+                m_state = displayReg;
             }
-            // display battery voltage on the LEDs
+            // display regulator voltage on the LEDs
             else if (m_btn->pressedFor(m_msLongPress))
             {
-                m_state = showVcc1;
-                m_msDisplay = m_ms;
-                digitalWrite(m_regEnable, LOW);
-                PORTA = 0x00;
-                while (!m_btn->wasReleased()) m_btn->read();
-                delay(50);      // some Vcc settling time
-                int vBat = readVcc();
-                digitalWrite(m_regEnable, HIGH);
-                m_bcdVcc = dec2bcd(vBat / 100);     // most significant two digits
-                PORTA = m_bcdVcc;
-                m_bcdVcc = dec2bcd(vBat % 100);     // least significant two digits
+                m_state = displayBatt;
             }
-            else if (m_ms - m_msLast >= m_msInterval - m_msOverlap)
+            // wait for the next time to change the LEDs
+            // if in an overlap interval or if there is no overlap, wait for the next interval end time
+            else if (m_inOverlap || m_msOverlap == 0)
             {
-                // overlap: turn on both current and previous LED patterns.
-                if (m_msOverlap > 0)
-                {
-                    m_state = overlap;
-                    PORTA = m_pattern | m_prevPattern;
-                }
-                else    // no overlap
-                {
-                    m_state = next;
-                }
+                m_state = waitNext;
+            }
+            // else wait for the overlap start time
+            else
+            {
+                m_state = waitOverlap;
             }
             break;
 
-        // wait until the end of the overlap period
-        case overlap:
-            if (m_ms - m_msLast >= m_msInterval) m_state = next;
+        // wait for end of LED interval
+        case waitNext:
+            if (m_ms - m_msLast >= m_msInterval)
+            {
+                m_state = next;
+                m_inOverlap = false;
+            }
+            else
+            {
+                m_state = checkButton;
+            }
+            break;
+
+        // wait for the beginning of the overlap period
+        case waitOverlap:
+            m_state = checkButton;
+            if (m_ms - m_msLast >= m_msInterval - m_msOverlap)
+            {
+                m_inOverlap = true;
+                PORTA = m_pattern | m_prevPattern;
+            }
             break;
 
         // display the current pattern
         case next:
-            m_state = wait;
+            m_state = checkButton;
             m_msLast = m_ms;
             PORTA = m_pattern;
+            m_prevPattern = m_pattern;
 
             // calculate the next pattern
-            m_prevPattern = m_pattern;
             switch (m_type)
             {
                 case scanLarson:
@@ -243,11 +249,38 @@ void Scanner::run()
             }
             break;
 
+        // display the battery voltage
+        case displayBatt:
+            m_state = displayVoltage1;
+            m_msDisplay = m_ms;
+            PORTA = 0x00;
+            digitalWrite(m_regEnable, LOW);
+            while (!m_btn->wasReleased()) m_btn->read();
+            delay(50);                              // some Vcc settling time
+            {
+                int vBat = readVcc();
+                digitalWrite(m_regEnable, HIGH);
+                m_bcdVcc = dec2bcd(vBat / 100);     // most significant two digits
+                PORTA = m_bcdVcc;
+                m_bcdVcc = dec2bcd(vBat % 100);     // least significant two digits
+            }
+            break;
+
+        // display the regulator voltage
+        case displayReg:
+            m_state = displayVoltage1;
+            m_msDisplay = m_ms;
+            m_bcdVcc = dec2bcd(m_vcc / 100);        // most significant two digits
+            PORTA = m_bcdVcc;
+            m_bcdVcc = dec2bcd(m_vcc % 100);        // least significant two digits
+            break;
+
         // display the most significant digits of the voltage on the LEDs
-        case showVcc1:
+        case displayVoltage1:
+            m_btn->read();
             if (m_btn->wasReleased() || m_ms - m_msDisplay > m_msDisplayMax)
             {
-                m_state = showVcc2;
+                m_state = displayVoltage2;
                 m_msDisplay = m_ms;
                 PORTA = m_bcdVcc;
             }
@@ -259,10 +292,11 @@ void Scanner::run()
             break;
 
         // display the least significant digits of the voltage on the LEDs
-        case showVcc2:
+        case displayVoltage2:
+            m_btn->read();
             if (m_btn->wasReleased() || m_ms - m_msDisplay > m_msDisplayMax)
             {
-                m_state = wait;
+                m_state = checkButton;
             }
             break;
 
@@ -336,16 +370,32 @@ void Scanner::calibrate()
 {
     // eeprom addresses
     uint16_t* eeSignature = (uint16_t*)0x1f8;       // address for the signature
-    uint8_t* eeOSCCAL = (uint8_t*)0x1fa;            // address for the calibrated OSCCAL value
+    uint8_t* eeOSCCAL3 = (uint8_t*)0x1fa;           // address for the calibrated OSCCAL 3.3V value
+    uint8_t* eeOSCCAL5 = (uint8_t*)0x1fb;           // address for the calibrated OSCCAL 5V value
     constexpr uint16_t OSCCAL_SIGNATURE(0xaa55);    // the signature value (do not change this)
 
     uint16_t signature = eeprom_read_word(eeSignature);
     if (signature == OSCCAL_SIGNATURE)
     {
-        uint8_t osccal = eeprom_read_byte(eeOSCCAL);
+        uint8_t osccal;
+        if (readVcc() < 3600)
+        {
+            osccal = eeprom_read_byte(eeOSCCAL3);
+            m_hbLED->enable();
+            delay(250);
+            m_hbLED->disable();
+        }
+        else
+        {
+            osccal = eeprom_read_byte(eeOSCCAL5);
+            m_hbLED->enable();
+            delay(250);
+            m_hbLED->disable();
+            delay(250);
+            m_hbLED->enable();
+            delay(250);
+            m_hbLED->disable();
+        }
         OSCCAL = osccal;
-        m_hbLED->enable();
-        delay(250);
-        m_hbLED->disable();
     }
 }

@@ -2,11 +2,11 @@
 // Copyright (C) 2019 by Jack Christensen and licensed
 // under GNU GPL v3.0, https://www.gnu.org/licenses/gpl.html//
 //
-// Tested with Arduino 1.8.9 and the ATTiny Core,
+// Developed with Arduino 1.8.9 and the ATTiny Core,
 // https://github.com/SpenceKonde/ATTinyCore
 //
 // Clock: 1MHz internal
-// BOD: Disabled
+// BOD: 1.8V
 // Pin Mapping: Counterclockwise (like old ATTinyCore and x41-series)
 //
 // Connect the PORTA pins (Arduino pins 3-10) to eight LEDs through
@@ -16,9 +16,9 @@
 // on the LEDs. A long press reads the battery voltage by briefly turning
 // off the boost regulator.
 //
-// Eight different scan patterns can be accessed by holding the select
-// button and reset at the same time, then releasing reset, then the
-// select button. The LEDs indicate the selected pattern. Press and
+// One of eight different scan patterns can be selected by pressing the
+// select and reset buttons at the same time, first releasing reset, then
+// releasing select. The LEDs indicate the selected pattern. Press and
 // release the select button to change. A long press will save the
 // selection to EEPROM or just wait five seconds and it will time out
 // and save the selection.
@@ -27,6 +27,11 @@
 // (meaning the battery is exhausted and the boost regulator cannot
 // compensate) then the MCU goes into power down sleep mode. A reset
 // (and a new battery!) is then required.
+//
+// The circuit is meant to run continuously, but it can be turned off
+// (i.e. put into power down sleep mode) by pressing and releasing the
+// select button to enter the voltmeter mode, and then a long press
+// will put the circuit to sleep. Press reset to wake up.
 //
 // Jack Christensen 19May2019
 
