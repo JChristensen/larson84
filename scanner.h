@@ -49,8 +49,6 @@ class Scanner
             m_msDisplayMax{6000},       // max time to display voltage on LEDs
             m_msLongPress{1000},        // long button press
             m_msSetTimeout{5000};       // set mode timeout
-        static constexpr int
-            m_minVcc{3000};             // sleep the mcu if Vcc falls below this value
         static constexpr uint8_t
             m_maxMode{7};               // mode number must be between 0 and 7
 
@@ -69,6 +67,7 @@ class Scanner
         uint32_t m_msLastVcc;           // last time we read Vcc
         uint32_t m_msDisplay;           // voltage display timer
         int m_vcc;                      // current Vcc moving average value
+        int m_minVcc;                   // sleep if Vcc falls below this value
         uint8_t m_bcdVcc;               // variable to hold the BCD voltage display values
         uint32_t m_ms;                  // current value from millis()
         scannerType_t m_type;           // scanner type
@@ -374,11 +373,16 @@ void Scanner::calibrate()
     uint8_t* eeOSCCAL5 = (uint8_t*)0x1fb;           // address for the calibrated OSCCAL 5V value
     constexpr uint16_t OSCCAL_SIGNATURE(0xaa55);    // the signature value (do not change this)
 
+    // calculate minimum Vcc value, circuit sleeps if Vcc falls below this value
+    // (~0.90 * observed Vcc)
+    int vcc = readVcc();
+    m_minVcc = (vcc / 10) * 9;
+
     uint16_t signature = eeprom_read_word(eeSignature);
     if (signature == OSCCAL_SIGNATURE)
     {
         uint8_t osccal;
-        if (readVcc() < 3600)
+        if (vcc < 3600)
         {
             osccal = eeprom_read_byte(eeOSCCAL3);
             m_hbLED->enable();
