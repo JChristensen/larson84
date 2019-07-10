@@ -13,6 +13,10 @@ This program is distributed in the hope that it will be useful, but WITHOUT ANY 
 
 You should have received a copy of the GNU General Public License along with this program. If not, see <https://www.gnu.org/licenses/gpl.html>
 
-## Introduction
+## Overview
 
-A small Larson scanner powered by an ATTiny84A microcontroller.
+A small Larson scanner powered by an [ATTiny84A microcontroller](https://www.microchip.com/wwwproducts/en/ATtiny84A).
+
+See the circuit design [here](https://github.com/JChristensen/tinyLarson).
+
+Operating instructions are in the [larson84.ino file](https://github.com/JChristensen/larson84/blob/master/larson84.ino).
