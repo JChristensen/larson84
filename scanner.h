@@ -157,7 +157,7 @@ void Scanner::run()
             else if (m_ms - m_btn->lastChange() >= m_msSetTimeout)
             {
                 m_state = checkButton;
-                eeprom_update_byte(&m_mode_ee, m_mode);
+                //eeprom_update_byte(&m_mode_ee, m_mode);
                 PORTA = 0x00;
                 init();
             }
