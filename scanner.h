@@ -139,6 +139,10 @@ void Scanner::run()
             break;
 
         // set the mode (indicates the mode 0-7 on the LEDs)
+        // if the user saves the mode with a long press, save it to eeprom.
+        // if the user selects a new mode but just lets it time out, set the
+        // new mode but do not save it to eeprom. then, after the next reset,
+        // the mode will revert to the last previously saved to eeprom.
         case setMode:
             m_btn->read();
             if (m_btn->wasReleased())
@@ -154,10 +158,9 @@ void Scanner::run()
                 while (!m_btn->wasReleased()) m_btn->read();
                 init();
             }
-            else if (m_ms - m_btn->lastChange() >= m_msSetTimeout)
+            else if (millis() - m_btn->lastChange() >= m_msSetTimeout)
             {
                 m_state = checkButton;
-                //eeprom_update_byte(&m_mode_ee, m_mode);
                 PORTA = 0x00;
                 init();
             }
